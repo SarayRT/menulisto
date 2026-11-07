@@ -506,10 +506,20 @@ const EXCLUSION_GROUPS = {
   marisco:['gamba','langostino','mejillon','calamar','marisco','pulpo','sepia'],
   carne:['pollo','pavo','ternera','cerdo','carne','chorizo','bacon','beicon','jamon','salchich','costilla','lomo','hamburguesa','picada','solomillo','panceta','pechuga','muslo','conejo','cordero','fuet','mortadela'],
   azucar:['azucar','miel','mermelada','chocolate','galleta','cacao'],
+  cacahuete:['cacahuete'],
+  soja:['soja','tofu','edamame','miso','tempeh'],
+  sesamo:['sesamo','tahini','tahin'],
+  apio:['apio'],
+  mostaza:['mostaza'],
 };
+/* Dietas e intolerancias (los 14 alérgenos de la normativa europea, más las dietas más habituales) */
+const DIETS = [['','Sin restricción'],['vegetariano','Vegetariana'],['vegano','Vegana'],['pescetariano','Pescetariana (sin carne)'],['sin cerdo','Sin cerdo']];
+const INTOLERANCES = [['gluten','Gluten (celíacos)'],['lactosa','Lactosa'],['huevo','Huevo'],['frutos secos','Frutos secos'],['cacahuete','Cacahuete'],['marisco','Marisco'],['pescado','Pescado'],['soja','Soja'],['sesamo','Sésamo'],['apio','Apio'],['mostaza','Mostaza']];
 function exclusionTerms(list, diet){
   const terms = new Set();
   for (const raw of list || []){ const k = norm(raw); if (!k) continue; (EXCLUSION_GROUPS[k] || [k]).forEach(t => terms.add(norm(t))); }
+  if (diet === 'pescetariano'){ EXCLUSION_GROUPS.carne.forEach(t => terms.add(norm(t))); }
+  if (diet === 'sin cerdo'){ EXCLUSION_GROUPS.cerdo.forEach(t => terms.add(norm(t))); }
   if (diet === 'vegetariano'){ [...EXCLUSION_GROUPS.carne, ...EXCLUSION_GROUPS.pescado, ...EXCLUSION_GROUPS.marisco].forEach(t => terms.add(norm(t))); }
   if (diet === 'vegano'){ [...EXCLUSION_GROUPS.carne, ...EXCLUSION_GROUPS.pescado, ...EXCLUSION_GROUPS.marisco, ...EXCLUSION_GROUPS.lacteos, 'huevo', 'miel'].forEach(t => terms.add(norm(t))); }
   return Array.from(terms);
@@ -1124,7 +1134,7 @@ function interpretSheet(txt){
      </div>
      <label class="field"><span class="lbl">Ya tengo en casa (se añade a la despensa)</span><input type="text" id="itHave" value="${esc(p.have.join(', '))}" placeholder="arroz, huevos, calabacín"></label>
      <div class="grid2">
-       <label class="field"><span class="lbl">Dieta</span><select id="itDiet"><option value="" ${!p.diet && !state.prefs.diet ? 'selected':''}>Sin restricción</option><option value="vegetariano" ${(p.diet||state.prefs.diet)==='vegetariano'?'selected':''}>Vegetariana</option><option value="vegano" ${(p.diet||state.prefs.diet)==='vegano'?'selected':''}>Vegana</option></select></label>
+       <label class="field"><span class="lbl">Dieta</span><select id="itDiet">${DIETS.map(([k,l]) => `<option value="${k}" ${((p.diet||state.prefs.diet))===k?'selected':''}>${l}</option>`).join('')}</select></label>
        <label class="field"><span class="lbl">No comemos / excluir</span><input type="text" id="itExcl" value="${esc([...(state.prefs.excluded||[]), ...p.excluded].filter((v,i,a)=>a.indexOf(v)===i).join(', '))}" placeholder="cerdo, gluten…"></label>
      </div>
      ${hasContent ? `<label class="toggle"><input type="checkbox" id="itOnlyEmpty" checked><span>Solo rellenar huecos (no tocar los platos que ya hay)</span></label>` : ''}
@@ -1877,9 +1887,12 @@ function settingsSheet(opts={}){
        ${MEALS.map(m => `<label class="toggle"><input type="checkbox" data-meal="${m.k}" ${p.meals[m.k]?'checked':''}><span>${m.l}</span></label>`).join('')}</label>
      <div class="grid2">
        <label class="field"><span class="lbl">Tiempo máximo para cocinar (min)</span><input type="number" id="stTime" value="${p.cookTime ?? ''}" placeholder="sin límite" inputmode="numeric"></label>
-       <label class="field"><span class="lbl">Dieta</span><select id="stDiet"><option value="" ${!p.diet?'selected':''}>Sin restricción</option><option value="vegetariano" ${p.diet==='vegetariano'?'selected':''}>Vegetariana</option><option value="vegano" ${p.diet==='vegano'?'selected':''}>Vegana</option></select></label>
+       <label class="field"><span class="lbl">Dieta</span><select id="stDiet">${DIETS.map(([k,l]) => `<option value="${k}" ${(p.diet)===k?'selected':''}>${l}</option>`).join('')}</select></label>
      </div>
-     <label class="field"><span class="lbl">Alergias e intolerancias</span><input type="text" id="stAllergies" value="${esc((p.allergies||[]).join(', '))}" placeholder="gluten, lactosa, frutos secos, huevo, marisco…"><div class="hint">Se excluyen las recetas que lleven esos ingredientes.</div></label>
+     <div class="field"><span class="lbl">Alergias e intolerancias</span>
+       <div class="chips" style="margin:6px 0">${INTOLERANCES.map(([k,l]) => `<label class="toggle"><input type="checkbox" data-alg="${k}" ${(p.allergies||[]).includes(k)?'checked':''}><span>${l}</span></label>`).join('')}</div>
+       <input type="text" id="stAllergies" value="${esc((p.allergies||[]).filter(a => !INTOLERANCES.some(([k]) => k===a)).join(', '))}" placeholder="Otras, separadas por comas (kiwi, altramuz…)">
+       <div class="hint">Se excluyen las recetas que lleven esos ingredientes.</div></div>
      <label class="field"><span class="lbl">Ingredientes que no queréis</span><input type="text" id="stExcluded" value="${esc((p.excluded||[]).join(', '))}" placeholder="cerdo, pescado, cilantro…"></label>
      ${opts.onboarding ? `<label class="field"><span class="lbl">Alimentos que ya tienes en casa</span><input type="text" id="stHave" placeholder="arroz, huevos, calabacín…"><div class="hint">Van a la despensa y se descuentan de la compra.</div></label>` : ''}
      <div class="grid2">
@@ -1896,7 +1909,7 @@ function settingsSheet(opts={}){
     p.people = Math.max(1, parseInt($('#stPeople').value,10) || 2); p.budget = num($('#stBudget').value); p.cookTime = num($('#stTime').value); p.diet = $('#stDiet').value;
     $$('#sheetBody [data-meal]').forEach(c => p.meals[c.dataset.meal] = c.checked);
     if (!Object.values(p.meals).some(Boolean)) p.meals.comida = true;
-    p.allergies = $('#stAllergies').value.split(',').map(s=>s.trim()).filter(Boolean); p.excluded = $('#stExcluded').value.split(',').map(s=>s.trim()).filter(Boolean);
+    p.allergies = [...$$('#sheetBody [data-alg]').filter(c => c.checked).map(c => c.dataset.alg), ...$('#stAllergies').value.split(',').map(s=>s.trim()).filter(Boolean)]; p.excluded = $('#stExcluded').value.split(',').map(s=>s.trim()).filter(Boolean);
     p.warehouse = $('#stWh').value; p.postal = $('#stPostal').value.trim(); p.setupDone = true;
     const have = $('#stHave'); if (have && have.value.trim()){ for (const h of have.value.split(',')){ const pi = parseIngLine(h.trim()); if (pi) pantryAdd(pi.n, pi.q, pi.u, {useFirst:true}); } }
     searchCache.clear(); save(true); renderAll(); closeSheet(); toast('Preferencias guardadas');

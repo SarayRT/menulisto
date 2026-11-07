@@ -1,5 +1,5 @@
 /* MenúListo · service worker. Deja la app abierta sin conexión; la búsqueda de Mercadona y la consulta de códigos siempre van a la red. */
-const CACHE = 'menulisto-715f83b9';
+const CACHE = 'menulisto-2f7d3959';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 const LIBS = ['unpkg.com', 'fonts.googleapis.com', 'fonts.gstatic.com']; // ZXing (lector de códigos) y tipografía: se guardan al primer uso
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
