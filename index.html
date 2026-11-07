@@ -255,6 +255,9 @@ code{background:var(--soft);padding:1px 5px;border-radius:5px;font-size:13px}
   .quick button{min-height:84px;font-size:13px}
   .day .meal-line{padding:10px 16px}
 }
+/* miniaturas de comida: foto de la receta o recuadro de color con la inicial */
+.mthumb{width:44px;height:44px;border-radius:14px;object-fit:cover;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:var(--choco);background:var(--soft)}
+.mthumb.ph{border:1px dashed rgba(90,58,30,.2)}
 
 </style>
 </head>
@@ -314,6 +317,7 @@ code{background:var(--soft);padding:1px 5px;border-radius:5px;font-size:13px}
       <button class="btn ghost sm" id="btnGenWeek">Generar semana</button>
       <button class="btn ghost sm" id="btnNextWeek">Preparar la siguiente semana</button>
       <button class="btn ghost sm" id="btnClearWeek">Vaciar semana</button>
+      <button class="btn soft sm" id="btnShareMenu">Enviar menú por WhatsApp</button>
     </div>
     <div id="nutriWeek"></div>
   </section>
@@ -324,6 +328,7 @@ code{background:var(--soft);padding:1px 5px;border-radius:5px;font-size:13px}
     <div class="btn-row" style="margin-bottom:12px">
       <button class="btn" id="btnBuildList"><svg><use href="#i-magic"/></svg>Generar desde el menú</button>
       <button class="btn choco" id="btnShopMode"><svg><use href="#i-cart"/></svg>Estoy comprando</button>
+      <button class="btn soft hidden" id="btnShareTop"><svg><use href="#i-box"/></svg>Enviar por WhatsApp</button>
     </div>
     <div class="row" style="margin-bottom:12px">
       <input type="text" id="addInput" placeholder="Añadir artículo… (ej. papel de cocina, leche 2 l)" autocomplete="off" enterkeyhint="done" class="grow">
@@ -392,6 +397,18 @@ function debounce(fn, ms){ let t; return (...a) => { clearTimeout(t); t = setTim
 function num(v){ const n = parseFloat(String(v ?? '').replace(',', '.')); return isFinite(n) ? n : null; }
 function fmtQ(n){ if (n == null) return ''; const r = Math.round(n*100)/100; return String(r).replace('.', ','); }
 function plural(n, s, p){ return n === 1 ? s : p; }
+/* Dictado por voz del navegador (Chrome/Android). Sin servidor; necesita internet y permiso del micrófono. */
+function voiceSupported(){ return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
+function listenOnce(onText, onEnd){
+  const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!R){ toast('Este navegador no permite dictar por voz'); if (onEnd) onEnd(); return null; }
+  const rec = new R(); rec.lang = 'es-ES'; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.onresult = e => { const t = e.results && e.results[0] && e.results[0][0] ? e.results[0][0].transcript : ''; if (t && t.trim()) onText(t.trim()); };
+  rec.onerror = e => { toast(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Permite el micrófono a Chrome para dictar' : 'No te he entendido, prueba otra vez'); };
+  rec.onend = () => { if (onEnd) onEnd(); };
+  try{ rec.start(); }catch(e){ if (onEnd) onEnd(); }
+  return rec;
+}
 function icon(name){ return `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`; }
 
 const DAYS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
@@ -721,10 +738,16 @@ function recipesSheet(opts={}){
      <div class="chips" style="margin-bottom:10px" id="recFilters">
        ${[['todos','Todos'],['fav','Favoritos'],['principal','Comidas y cenas'],['desayuno','Desayunos'],['tentempie','Tentempiés']].map(([k,l]) => `<button class="chip ${filter===k?'gold':''}" data-f="${k}">${l}</button>`).join('')}
      </div>
-     <div class="btn-row" style="margin-bottom:8px"><button class="btn soft sm" id="recNew">${icon('plus')} Plato nuevo</button><button class="btn ghost sm" id="recFromPhoto">${icon('cam')} Desde una foto</button></div>
+     <div class="btn-row" style="margin-bottom:8px"><button class="btn soft sm" id="recNew">${icon('plus')} Plato nuevo</button><button class="btn ghost sm" id="recVoice">🎤 Dictar</button><button class="btn ghost sm" id="recFromPhoto">${icon('cam')} Desde una foto</button></div>
      <div id="recList"></div>`);
   render();
   $('#recSearch').oninput = e => { q = e.target.value; render(); };
+  const vb = $('#recVoice');
+  if (vb && !voiceSupported()) vb.classList.add('hidden');
+  else if (vb) vb.onclick = () => {
+    vb.textContent = '🎤 Escuchando…';
+    listenOnce(t => { $('#recSearch').value = t; q = t; render(); }, () => { vb.textContent = '🎤 Dictar'; });
+  };
   $('#recFilters').onclick = e => { const b = e.target.closest('[data-f]'); if (!b) return; filter = b.dataset.f; $$('#recFilters .chip').forEach(c => c.classList.toggle('gold', c.dataset.f === filter)); render(); };
   $('#recNew').onclick = () => recipeEditorSheet(null, opts);
   $('#recFromPhoto').onclick = () => photoSheet('receta', opts);
@@ -819,11 +842,23 @@ function slotLabel(slot){
   if (slot.leftoverOf){ const src = curWeek().days[slot.leftoverOf.day].slots[slot.leftoverOf.slot]; const r = src && recipeById(src.recipeId); return {name: `Sobras: ${r ? r.name : 'plato eliminado'}`, meta: `${slot.servings} ${plural(slot.servings,'ración','raciones')} · ya cocinado`, leftover:true}; }
   if (slot.text) return {name: slot.text, meta: 'plato escrito · sin ingredientes', text:true};
   const r = recipeById(slot.recipeId); if (!r) return {name:'(plato eliminado)', meta:''};
-  return {name: r.name, meta: `${slot.servings} ${plural(slot.servings,'ración','raciones')}${slot.extra ? ` +${slot.extra} extra` : ''}${r.time ? ` · ${r.time} min` : ''}`};
+  return {name: r.name, photo: r.photo || null, meta: `${slot.servings} ${plural(slot.servings,'ración','raciones')}${slot.extra ? ` +${slot.extra} extra` : ''}${r.time ? ` · ${r.time} min` : ''}`};
+}
+/* Texto del menú de la semana para WhatsApp */
+function menuText(){
+  const wk = curWeek(); const meals = activeMeals();
+  let s = `Menú de la semana · ${weekLabel(state.currentWeek)}\n`;
+  wk.days.forEach((d, i) => {
+    const parts = meals.map(m => { const L = slotLabel(d.slots[m.k]); return L ? `${m.l}: ${L.name}` : null; }).filter(Boolean);
+    s += `\n${DAYS[i]}` + (parts.length ? '\n' + parts.map(p => '  · ' + p).join('\n') : ' · sin planificar');
+  });
+  return s;
 }
 function mealLine(dayIdx, m, slot, big){
   const L = slotLabel(slot);
+  const thumb = L && L.photo ? `<img class="mthumb" src="${L.photo}" alt="">` : `<span class="mthumb ph ${m.cls}">${L ? esc((L.name||'?').trim().charAt(0).toUpperCase()) : '+'}</span>`;
   return `<button class="meal-line" data-day="${dayIdx}" data-slot="${m.k}">
+    ${thumb}
     <span class="mlbl ${m.cls}">${m.l}</span>
     <span class="mtxt ${L ? '' : 'empty'}">${L ? `${esc(L.name)}${slot.pinned ? ' <span class="pin">fijado</span>' : ''}<small>${esc(L.meta)}</small>` : (big ? 'Sin plato. Toca para elegir' : 'Toca para elegir')}</span>
     <span class="pick-chev" style="color:#c7b9a6">›</span></button>`;
@@ -1116,6 +1151,7 @@ function interpretSheet(txt){
   };
 }
 $('#qWrite').addEventListener('click', writeSheet);
+$('#btnShareMenu').addEventListener('click', () => openWhatsApp(menuText()));
 
 
 /* ===== Despensa: «Ya tengo esto» ===== */
@@ -1329,7 +1365,7 @@ function renderList(){
   if (!state.list.length){
     $('#listBody').innerHTML = `<div class="card"><div class="empty">La lista está vacía.<br><span class="small">Genera la compra desde el menú o añade artículos a mano.</span><br><button class="btn" id="emptyGen">Generar desde el menú</button></div></div>`;
     $('#emptyGen').onclick = () => buildShoppingList();
-    $('#listTools').innerHTML = ''; renderLeftoverProposals(); return;
+    $('#listTools').innerHTML = ''; $('#btnShareTop').classList.add('hidden'); renderLeftoverProposals(); return;
   }
   const bySec = new Map();
   for (const i of pending){ const s = i.section || 'Otros'; if (!bySec.has(s)) bySec.set(s, []); bySec.get(s).push(i); }
@@ -1345,6 +1381,7 @@ function renderList(){
     <button class="btn ghost sm" id="btnClearAll">Vaciar lista</button>`;
   const ap = $('#btnAutoPrices'); if (ap) ap.onclick = autoPrices;
   $('#btnShare').onclick = shareWhatsApp; $('#btnCopy').onclick = copyList;
+  $('#btnShareTop').classList.remove('hidden'); $('#btnShareTop').onclick = shareWhatsApp;
   const cd = $('#btnClearDone'); if (cd) cd.onclick = () => { state.list = state.list.filter(i => !i.done); save(); renderList(); };
   $('#btnClearAll').onclick = () => confirmSheet('Vaciar lista', '¿Quitar todos los artículos de la lista (también los manuales)?', 'Vaciar', () => { state.list = []; state.listBuilt = false; state.listCovered = []; save(); renderList(); });
   renderLeftoverProposals();
@@ -1450,7 +1487,8 @@ function listText(){
   if (t.withPrice) s += `\nConocido: ${money(t.known)}${t.unknown ? ` · ${t.unknown} sin precio` : ''} (precios de la tienda online de Mercadona u orientativos)`;
   return s;
 }
-function shareWhatsApp(){ const url = 'https://wa.me/?text=' + encodeURIComponent(listText()); if (window.MenuListoAndroid && MenuListoAndroid.openUrl){ MenuListoAndroid.openUrl(url); return; } const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); }
+function shareWhatsApp(){ openWhatsApp(listText()); }
+function openWhatsApp(text){ const url = 'https://wa.me/?text=' + encodeURIComponent(text); if (window.MenuListoAndroid && MenuListoAndroid.openUrl){ MenuListoAndroid.openUrl(url); return; } const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); }
 async function copyList(){ try{ await navigator.clipboard.writeText(listText()); toast('Lista copiada'); }catch(e){ openSheet('Copiar lista', `<textarea style="min-height:220px" readonly>${esc(listText())}</textarea><p class="muted">Selecciona el texto y cópialo.</p>`); } }
 
 /* ===== Modo «Estoy comprando» ===== */
